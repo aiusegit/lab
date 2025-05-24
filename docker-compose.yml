@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # NestJS Backend Service
+  nestjs_backend:
+    build:
+      context: .
+      dockerfile: Dockerfile # Assumes Dockerfile is in the project root
+    container_name: nestjs_crm_backend
+    command: npm run start:dev # For hot-reloading in development
+    ports:
+      - "${NESTJS_PORT:-3000}:3000" # Expose on host, internal is 3000
+    volumes:
+      - .:/app # Mount root source code
+      - /app/node_modules # Anonymous volume for node_modules to avoid host override
+    env_file:
+      - ./.env # Main .env file for NestJS
+    environment:
+      # Override or set specific variables for Docker Compose environment
+      NESTJS_PORT: 3000
+      MASTER_SURREALDB_URL: ws://surrealdb:8000/rpc
+      MASTER_SURREALDB_USER: root
+      MASTER_SURREALDB_PASS: root
+      MASTER_SURREALDB_NS: saas_platform
+      MASTER_SURREALDB_DB: tenants_db
+      TENANT_SURREALDB_URL: ws://surrealdb:8000/rpc # Same instance for tenant provisioning
+      TENANT_SURREALDB_ROOT_USER: root
+      TENANT_SURREALDB_ROOT_PASS: root
+      BAILEYS_SERVICE_URL: http://baileys_microservice:3002/api
+      # BAILEYS_SERVICE_API_KEY is expected in ./.env
+      # AGUI_PROXY_URL is expected in ./.env (could be localhost or another container)
+      # DEFAULT_TENANT_ID_FOR_WHATSAPP_INCOMING is expected in ./.env
+      # BAILEYS_WEBHOOK_API_KEY is expected in ./.env
+      # JWT_SECRET is expected in ./.env
+    depends_on:
+      - surrealdb
+      - baileys_microservice
+    networks:
+      - crm_network
+
+  # Baileys WhatsApp Microservice
+  baileys_microservice:
+    build:
+      context: ./baileys-microservice
+      dockerfile: Dockerfile
+    container_name: baileys_whatsapp_service
+    command: npm run dev # For hot-reloading in development
+    ports:
+      - "${BAILEYS_PORT:-3002}:3002" # Expose on host, internal is 3002
+    volumes:
+      - ./baileys-microservice:/app
+      - /app/node_modules # Anonymous volume for node_modules
+      - baileys_sessions:/app/whatsapp_sessions/baileys_auth_state # Named volume for session persistence
+    env_file:
+      - ./baileys-microservice/.env # .env file for Baileys service
+    environment:
+      BAILEYS_PORT: 3002
+      NESTJS_WEBHOOK_URL: http://nestjs_backend:3000/api/whatsapp/webhook/incoming
+      # BAILEYS_API_KEY_INTERNAL is expected in ./baileys-microservice/.env
+      # NESTJS_WEBHOOK_API_KEY is expected in ./baileys-microservice/.env
+      # LOG_LEVEL is expected in ./baileys-microservice/.env
+      # SESSION_FILE_PATH is expected in ./baileys-microservice/.env (and should align with volume mount)
+    networks:
+      - crm_network
+
+  # SurrealDB Service
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    container_name: surrealdb_crm
+    ports:
+      - "8000:8000"
+    command: start --log trace --user root --pass root file:/surrealdb_data/crm_database.db
+    volumes:
+      - surrealdb_data:/surrealdb_data # Named volume for data persistence
+    networks:
+      - crm_network
+
+volumes:
+  surrealdb_data:
+    driver: local
+  baileys_sessions:
+    driver: local
+
+networks:
+  crm_network:
+    driver: bridge

@@ -1,150 +1,125 @@
-import { Injectable, Inject, NotFoundException, InternalServerErrorException, Logger, Scope, BadRequestException, OnModuleInit } from '@nestjs/common';
-import Surreal, { RecordId } from 'surrealdb.js';
+import { Injectable, Inject, NotFoundException, InternalServerErrorException, Logger, Scope, BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
+import Surreal from 'surrealdb.js';
 import { TENANT_SURREAL_CONNECTION } from '../tenant-surreal/tenant-surreal.module';
 import { TenantContextService } from '../tenant-context/tenant-context.service';
 import { ContactsService } from '../contacts/contacts.service';
-import { BaileysManagerService } from './baileys-manager.service';
-import { WAMessage, jidNormalizedUser } from '@whiskeysockets/baileys';
-import { WhatsAppMessage } from './dto/whatsapp.dto';
+import { WhatsAppMessage } from './dto/whatsapp.dto'; // Existing DTO for DB
+import { IncomingMessagePayload } from './dto/whatsapp-webhook.dto'; // New DTO for webhook
 import { ConfigService } from '@nestjs/config';
-import { Contact } from '../contacts/dto/contacts.dto'; // Assuming Contact interface
+import { Contact } from '../contacts/dto/contacts.dto';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { AxiosError } from 'axios';
+import { jidNormalizedUser } from '@whiskeysockets/baileys'; // For normalizing our own JID if needed
+import { AgUiIntegrationService } from '../ag-ui/ag-ui-integration.service';
 
-@Injectable({ scope: Scope.REQUEST }) // Request-scoped to handle tenant context for outgoing messages
-export class WhatsAppService implements OnModuleInit {
+
+@Injectable({ scope: Scope.REQUEST }) // Request-scoped for outgoing, but webhook processing is effectively singleton per call
+export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
-  private defaultTenantIdForIncoming: string;
+  private readonly baileysServiceUrl: string;
+  private readonly baileysServiceApiKey: string;
+  private readonly defaultBotJid = 'your_bot_jid@s.whatsapp.net'; // Placeholder, should be fetched or configured
 
   constructor(
-    @Inject(TENANT_SURREAL_CONNECTION) private readonly tenantDb: Surreal | null,
-    private readonly tenantContextService: TenantContextService, // For outgoing messages
-    private readonly contactsService: ContactsService, // This will be request-scoped, so it uses current tenant context
-    private readonly baileysManager: BaileysManagerService,
+    @Inject(TENANT_SURREAL_CONNECTION) private readonly tenantDb: Surreal | null, // Nullable for webhook context
+    private readonly tenantContextService: TenantContextService,
+    private readonly contactsService: ContactsService,
     private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
+    private readonly agUiIntegrationService: AgUiIntegrationService, // For AG-UI events
   ) {
-    this.defaultTenantIdForIncoming = this.configService.get<string>('DEFAULT_TENANT_ID_FOR_WHATSAPP_INCOMING');
-    if (!this.defaultTenantIdForIncoming) {
-      this.logger.warn('DEFAULT_TENANT_ID_FOR_WHATSAPP_INCOMING is not set in .env. Incoming messages might not be processed correctly.');
+    this.baileysServiceUrl = this.configService.get<string>('BAILEYS_SERVICE_URL');
+    this.baileysServiceApiKey = this.configService.get<string>('BAILEYS_SERVICE_API_KEY');
+    const configuredBotJid = this.configService.get<string>('WHATSAPP_BOT_JID'); // Optional: configure your bot's JID
+    if (configuredBotJid) {
+        this.defaultBotJid = jidNormalizedUser(configuredBotJid);
     }
   }
 
-  async onModuleInit() {
-    this.logger.log('WhatsAppService initialized. Subscribing to incoming messages from BaileysManager.');
-    this.baileysManager.incomingMessage$.subscribe(async ({ message, rawEvents }) => {
-      try {
-        // MVP Limitation: Using defaultTenantIdForIncoming for handling all incoming messages.
-        // In a full multi-tenant Baileys setup, this would need to be more sophisticated,
-        // possibly routing messages based on the connected WhatsApp number if multiple clients are managed,
-        // or having a dedicated DB connection for the default tenant here.
-        if (!this.defaultTenantIdForIncoming) {
-            this.logger.error('Cannot handle incoming message: DEFAULT_TENANT_ID_FOR_WHATSAPP_INCOMING is not configured.');
-            return;
-        }
-        await this.handleIncomingMessage(message, rawEvents, this.defaultTenantIdForIncoming);
-      } catch (error) {
-        this.logger.error(`Error processing incoming message: ${error.message}`, error.stack);
-      }
-    });
-  }
-
-  private ensureDbConnection(): Surreal {
-    if (!this.tenantDb) {
-      this.logger.error('Tenant database connection is not available for an outgoing operation.');
-      throw new InternalServerErrorException('Tenant database connection is not available.');
+  private ensureDbConnectionForTenant(tenantId: string): Surreal {
+    // This is a simplified check for request-scoped injection.
+    // For webhook, tenantDb might be null if service is instantiated outside tenant request scope.
+    // getDbForTenant handles creating a new connection for webhook.
+    if (this.tenantDb && this.tenantContextService.getTenantDetails()?.namespaceId?.includes(tenantId)) {
+      return this.tenantDb;
     }
-    return this.tenantDb;
+    this.logger.warn(`ensureDbConnectionForTenant: Tenant DB not available or context mismatch for tenant ${tenantId}. Consider using getDbForTenant for webhook processing.`);
+    throw new InternalServerErrorException(`Database context not properly set for tenant ${tenantId} for this operation.`);
   }
 
-  // Helper to get a DB connection for a specific tenant (used for incoming messages)
   private async getDbForTenant(tenantId: string): Promise<Surreal> {
-    // This is a simplified approach. In a real scenario, you might have a pool of connections
-    // or a way to dynamically instantiate a Surreal client for a specific tenant's NS/DB
-    // based on master DB lookup, similar to how TenantSurrealModule factory works.
-    // For MVP, assuming the tenantDb injected in constructor might be usable IF this service
-    // was instantiated within that tenant's request scope. But for incoming messages, it's not.
-    // So, we'll create a new connection or throw error.
-    
-    // This is a placeholder. Proper dynamic connection for a specific tenant is complex
-    // outside a request scope and might require a dedicated service.
-    // For now, if current tenantDb matches default, use it, otherwise error.
-    const currentTenantDetails = this.tenantContextService.getTenantDetails();
-    const masterDbUrl = this.configService.get<string>('MASTER_SURREALDB_URL'); // Assuming master can provide details
-    const rootUser = this.configService.get<string>('TENANT_SURREALDB_ROOT_USER');
-    const rootPass = this.configService.get<string>('TENANT_SURREALDB_ROOT_PASS');
-
-    // TODO: Fetch tenant's ns/db from master DB using tenantId (business ID)
-    // This part is crucial and needs a service similar to TenantsService but callable from a singleton context.
-    // For MVP, this will be a major simplification / hardcoding if not careful.
-    // Let's assume for now we can't get a dynamic DB connection easily here and rely on an external mechanism
-    // to ensure the "defaultTenantIdForIncoming" context is somehow set for the DB.
-    // This is a significant simplification for the MVP.
-    
-    // A more robust (but still simplified) approach for MVP:
-    // Use the globally configured TENANT_SURREALDB_URL and root credentials, then `USE NS/DB`.
-    // This is only safe if the `defaultTenantIdForIncoming` corresponds to a NS/DB that the root user can access.
     const tempDb = new Surreal();
     try {
-        const tenantNs = `tenant_${tenantId.replace(/-/g, '_')}`; // Assuming a convention
-        const tenantDbName = 'app_db'; // Assuming a convention
+      // Assuming tenantId is the business ID, convert to NS format
+      const tenantNs = `tenant_${tenantId.replace(/-/g, '_')}`;
+      const tenantDbName = 'app_db'; // Standardized
 
-        await tempDb.connect(this.configService.get<string>('TENANT_SURREALDB_URL'));
-        if (rootUser && rootPass) {
-            await tempDb.signin({user: rootUser, pass: rootPass});
-        }
-        await tempDb.use({ns: tenantNs, db: tenantDbName});
-        this.logger.log(`Successfully connected to DB for tenant ${tenantId} (ns: ${tenantNs}) for incoming message handling.`);
-        return tempDb;
-    } catch(e) {
-        this.logger.error(`Failed to create dynamic DB connection for tenant ${tenantId}: ${e.message}`);
-        await tempDb.close();
-        throw new InternalServerErrorException(`Could not establish DB connection for tenant ${tenantId} to handle incoming message.`);
+      await tempDb.connect(this.configService.get<string>('TENANT_SURREALDB_URL'));
+      const rootUser = this.configService.get<string>('TENANT_SURREALDB_ROOT_USER');
+      const rootPass = this.configService.get<string>('TENANT_SURREALDB_ROOT_PASS');
+      if (rootUser && rootPass) {
+        await tempDb.signin({ user: rootUser, pass: rootPass });
+      }
+      await tempDb.use({ ns: tenantNs, db: tenantDbName });
+      this.logger.log(`Successfully connected to DB for tenant ${tenantId} (ns: ${tenantNs}) for webhook processing.`);
+      return tempDb;
+    } catch (e) {
+      this.logger.error(`Failed to create dynamic DB connection for tenant ${tenantId}: ${e.message}`);
+      await tempDb.close(); // Ensure connection is closed on failure
+      throw new InternalServerErrorException(`Could not establish DB connection for tenant ${tenantId}.`);
     }
   }
 
-
   async sendMessage(contactId: string, messageText: string): Promise<WhatsAppMessage> {
-    const db = this.ensureDbConnection(); // Uses current request's tenant context
-    const currentTenantId = this.tenantContextService.getTenantDetails().namespaceId?.replace('tenant_',''); // Business ID
-
+    const currentTenantId = this.tenantContextService.getTenantDetails().namespaceId?.replace('tenant_','');
     if (!currentTenantId) {
-        throw new InternalServerErrorException('Tenant ID could not be determined for sending message.');
+      throw new InternalServerErrorException('Tenant ID could not be determined for sending message.');
     }
+    // Use ensureDbConnectionForTenant for operations within a request scope
+    const db = this.ensureDbConnectionForTenant(currentTenantId);
+
 
     this.logger.log(`Attempting to send message to contact ${contactId} in tenant ${currentTenantId}.`);
 
-    const contact = await this.contactsService.findOne(contactId); // Uses request-scoped ContactsService
+    const contact = await this.contactsService.findOne(contactId);
     if (!contact || !contact.phone_number) {
       throw new NotFoundException(`Contact with ID ${contactId} not found or has no phone number.`);
     }
 
-    const sock = await this.baileysManager.getSocket();
-    if (!sock) {
-      throw new InternalServerErrorException('WhatsApp client is not connected.');
-    }
-
-    // Format JID: ensure it's example@s.whatsapp.net
-    // Assuming phone_number is stored as plain digits or with country code.
-    // Baileys usually expects JIDs like '1234567890@s.whatsapp.net'
-    let recipientJid = contact.phone_number.replace(/\D/g, ''); // Remove non-digits
+    let recipientJid = contact.phone_number.replace(/\D/g, '');
     if (!recipientJid.endsWith('@s.whatsapp.net')) {
       recipientJid = `${recipientJid}@s.whatsapp.net`;
     }
-    recipientJid = jidNormalizedUser(recipientJid); // Normalize JID
+    recipientJid = jidNormalizedUser(recipientJid);
 
-    this.logger.log(`Sending message to JID: ${recipientJid}`);
+    if (!this.baileysServiceUrl || !this.baileysServiceApiKey) {
+      this.logger.error('Baileys microservice URL or API Key is not configured.');
+      throw new InternalServerErrorException('WhatsApp service is not configured.');
+    }
+
+    const url = `${this.baileysServiceUrl}/message/send`;
+    const payload = { jid: recipientJid, text: messageText };
+    const headers = { 'X-Api-Key': this.baileysServiceApiKey, 'Content-Type': 'application/json' };
 
     try {
-      const waMessage = await sock.sendMessage(recipientJid, { text: messageText });
-      this.logger.log(`Message sent successfully to ${recipientJid}. Message ID: ${waMessage.key.id}`);
+      this.logger.debug(`Calling Baileys microservice at ${url} for JID ${recipientJid}`);
+      const response = await firstValueFrom(
+        this.httpService.post(url, payload, { headers }),
+      );
+
+      this.logger.log(`Message sent via microservice to ${recipientJid}. Response: ${response.status}`);
+      // Assuming microservice returns { success: true, messageId: string, status: any }
 
       const messageToStore: WhatsAppMessage = {
-        message_id: waMessage.key.id!,
-        sender_jid: jidNormalizedUser(sock.user!.id), // Our bot's JID
+        message_id: response.data.messageId || `local_${Date.now()}`, // Use microservice's ID
+        sender_jid: this.defaultBotJid, // Our bot's JID
         receiver_jid: recipientJid,
-        contact_link: contact.id, // Link to CRM contact
+        contact_link: contact.id,
         content: messageText,
         message_type: 'text',
-        status: 'sent', // Or 'delivered' if we get immediate confirmation
-        timestamp: new Date(waMessage.messageTimestamp! as number * 1000).toISOString(),
+        status: 'sent', // Or map from response.data.status
+        timestamp: new Date().toISOString(), // Microservice might provide a better timestamp
         direction: 'outbound',
         tenant_id: currentTenantId,
         created_at: new Date().toISOString(),
@@ -153,92 +128,104 @@ export class WhatsAppService implements OnModuleInit {
       const createdRecords = await db.create<WhatsAppMessage>('whatsapp_messages', messageToStore);
       this.logger.log(`Outgoing message stored in DB with ID: ${Array.isArray(createdRecords) ? createdRecords[0].id : createdRecords.id}`);
       return Array.isArray(createdRecords) ? createdRecords[0] : createdRecords;
+
     } catch (error) {
-      this.logger.error(`Error sending WhatsApp message or storing it: ${error.message}`, error.stack);
+      const axiosError = error as AxiosError;
+      if (axiosError.isAxiosError) {
+        this.logger.error(
+          `Error calling Baileys microservice: ${axiosError.message}, Status: ${axiosError.response?.status}, Data: ${JSON.stringify(axiosError.response?.data)}`,
+        );
+        throw new HttpException(
+          axiosError.response?.data || 'Failed to send message via Baileys service',
+          axiosError.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+      this.logger.error(`Generic error sending message: ${error.message}`, error.stack);
       throw new InternalServerErrorException(`Failed to send message: ${error.message}`);
     }
   }
 
-  async handleIncomingMessage(message: WAMessage, rawMessageEvents: any, processingTenantId: string): Promise<void> {
-    this.logger.log(`Handling incoming message for tenant ${processingTenantId}: ${JSON.stringify(message)}`);
-    let tempDbForTenant: Surreal | null = null;
+  async processIncomingWebhookMessage(payload: IncomingMessagePayload, tenantIdToProcessFor: string): Promise<void> {
+    this.logger.log(`Processing incoming webhook message for tenant ${tenantIdToProcessFor}. Message ID: ${payload.messageId}`);
+    let dbForTenant: Surreal | null = null;
 
     try {
-      tempDbForTenant = await this.getDbForTenant(processingTenantId);
+      dbForTenant = await this.getDbForTenant(tenantIdToProcessFor);
 
-      const senderJid = message.key.remoteJid;
-      if (!senderJid || message.key.fromMe) {
-        this.logger.debug('Incoming message is from self or sender JID is missing. Skipping.');
-        if (tempDbForTenant) await tempDbForTenant.close();
-        return;
-      }
-      
-      // Extract message content (simplified for text messages)
       let messageContent = '';
-      if (message.message?.conversation) {
-        messageContent = message.message.conversation;
-      } else if (message.message?.extendedTextMessage?.text) {
-        messageContent = message.message.extendedTextMessage.text;
+      if (payload.content?.conversation) {
+        messageContent = payload.content.conversation;
+      } else if (payload.content?.extendedTextMessage?.text) {
+        messageContent = payload.content.extendedTextMessage.text;
       } else {
-        this.logger.debug(`Received message (ID: ${message.key.id}) with no recognizable text content. Skipping.`);
-        if (tempDbForTenant) await tempDbForTenant.close();
-        return;
+        this.logger.debug(`Webhook message (ID: ${payload.messageId}) has no recognizable text content. Skipping storage.`);
+        return; // Or handle other types like images, audio
       }
 
       if (!messageContent.trim()) {
-        this.logger.debug(`Received empty message (ID: ${message.key.id}). Skipping.`);
-        if (tempDbForTenant) await tempDbForTenant.close();
+        this.logger.debug(`Webhook message (ID: ${payload.messageId}) is empty. Skipping.`);
         return;
       }
-      
-      this.logger.log(`Processing message from ${senderJid} for tenant ${processingTenantId}. Content: "${messageContent}"`);
 
-      // Attempt to find contact by phone number (JID without @s.whatsapp.net)
-      const plainPhoneNumber = senderJid.split('@')[0];
+      const plainPhoneNumber = payload.senderJid.split('@')[0];
       let contactLink: string | undefined = undefined;
 
       try {
-        // Query contacts table for this phone number within the specific tenant's DB
-        const contactsQuery = `SELECT * FROM contacts WHERE string::replace(phone_number, /\\D/g, "") = $number LIMIT 1;`;
-        const contactResult = await tempDbForTenant.query<[Contact[]]>(contactsQuery, { number: plainPhoneNumber });
+        const contactsQuery = `SELECT id, first_name, last_name FROM contacts WHERE string::replace(phone_number, /\\D/g, "") = $number LIMIT 1;`;
+        const contactResult = await dbForTenant.query<[Contact[]]>(contactsQuery, { number: plainPhoneNumber });
         const foundContact = contactResult[0]?.result?.[0];
 
         if (foundContact) {
           contactLink = foundContact.id;
-          this.logger.log(`Found matching contact ${contactLink} for sender ${senderJid} in tenant ${processingTenantId}.`);
+          this.logger.log(`Found matching contact ${contactLink} for sender ${payload.senderJid} in tenant ${tenantIdToProcessFor}.`);
         } else {
-          this.logger.log(`No matching contact found for sender ${senderJid} (phone: ${plainPhoneNumber}) in tenant ${processingTenantId}. Message will be stored without contact link.`);
-          // Optionally, create a new contact here if desired.
+          this.logger.log(`No matching contact for sender ${payload.senderJid} (phone: ${plainPhoneNumber}) in tenant ${tenantIdToProcessFor}.`);
+          // Optional: Create a new contact here if desired by business logic.
         }
       } catch (contactError) {
-          this.logger.error(`Error looking up contact for ${plainPhoneNumber} in tenant ${processingTenantId}: ${contactError.message}`);
+        this.logger.error(`Error looking up contact for ${plainPhoneNumber} in tenant ${tenantIdToProcessFor}: ${contactError.message}`);
       }
 
-
       const messageToStore: WhatsAppMessage = {
-        message_id: message.key.id!,
-        sender_jid: jidNormalizedUser(senderJid),
-        receiver_jid: jidNormalizedUser(this.baileysManager.getWhatsAppJid() || 'unknown@s.whatsapp.net'), // Our bot's JID
+        message_id: payload.messageId,
+        sender_jid: jidNormalizedUser(payload.senderJid),
+        receiver_jid: this.defaultBotJid, // Our bot's JID
         contact_link: contactLink,
         content: messageContent,
-        message_type: 'text', // Assuming text for MVP
+        message_type: 'text', // Assuming text for now
         status: 'received',
-        timestamp: new Date((message.messageTimestamp as number) * 1000).toISOString(),
+        timestamp: new Date(payload.messageTimestamp * 1000).toISOString(),
         direction: 'inbound',
-        tenant_id: processingTenantId,
+        tenant_id: tenantIdToProcessFor,
         created_at: new Date().toISOString(),
       };
 
-      const createdRecords = await tempDbForTenant.create<WhatsAppMessage>('whatsapp_messages', messageToStore);
-      this.logger.log(`Incoming message from ${senderJid} stored in DB for tenant ${processingTenantId}. DB ID: ${Array.isArray(createdRecords) ? createdRecords[0].id : createdRecords.id}`);
-    
+      const createdRecords = await dbForTenant.create<WhatsAppMessage>('whatsapp_messages', messageToStore);
+      const dbId = Array.isArray(createdRecords) ? createdRecords[0].id : createdRecords.id;
+      this.logger.log(`Incoming message from ${payload.senderJid} stored in DB for tenant ${tenantIdToProcessFor}. DB ID: ${dbId}`);
+
+      // Emit AG-UI event for new incoming message
+      this.agUiIntegrationService.publishEvent(
+        'whatsapp_message_received',
+        {
+          dbId: dbId,
+          message: messageToStore, // Send the stored message object
+          contactId: contactLink,
+          sender: payload.senderJid,
+          pushName: payload.pushName,
+        },
+        tenantIdToProcessFor
+      ).catch(err => this.logger.error(`Error publishing AG-UI event for incoming WhatsApp message: ${err.message}`));
+
+
     } catch (error) {
-      this.logger.error(`Error in handleIncomingMessage for tenant ${processingTenantId}: ${error.message}`, error.stack);
+      this.logger.error(`Error in processIncomingWebhookMessage for tenant ${tenantIdToProcessFor}: ${error.message}`, error.stack);
+      // Do not rethrow, as this is a webhook handler. Log and absorb.
     } finally {
-        if (tempDbForTenant) {
-            await tempDbForTenant.close();
-            this.logger.debug(`Closed temporary DB connection for tenant ${processingTenantId} after handling incoming message.`);
-        }
+      if (dbForTenant) {
+        await dbForTenant.close();
+        this.logger.debug(`Closed temporary DB connection for tenant ${tenantIdToProcessFor} after webhook processing.`);
+      }
     }
   }
 }

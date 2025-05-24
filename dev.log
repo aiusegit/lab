@@ -24,3 +24,12 @@
         - Frontend `KanbanPage.svelte` subscribes to these events via CopilotKit, enabling real-time data refresh for the relevant tenant.
     - **Documentation:** Updated `requisitos.md` to reflect MVP status.
     - The CRM MVP is now functional at a basic level. Next steps could involve refining features, adding more robust error handling, comprehensive testing, or developing further integrations.
+
+[2025-05-26 11:00:00 -03:00] Completed Phase 2.5: Baileys Microservice Refactor & Local Setup.
+    - Designed API for standalone Baileys microservice (send message, status, incoming message webhook schema).
+    - Implemented Baileys microservice as a separate Node.js/Express.js application with its own Dockerfile, API, and Baileys client logic.
+    - Created `docker-compose.yml` for local development, orchestrating NestJS backend, Baileys microservice, and SurrealDB.
+    - Refactored NestJS `WhatsAppService` to communicate with the Baileys microservice via its API (using NestJS `HttpModule`).
+    - Implemented a webhook endpoint in NestJS (`/api/whatsapp/webhook/incoming`) to receive messages from the Baileys microservice, secured with an API key.
+    - Updated/created `.env.example` files for both NestJS backend and Baileys microservice with necessary environment variables for their interaction (service URLs, API keys).
+    - This refactoring enables more robust and scalable WhatsApp integration.

@@ -1,25 +1,28 @@
-import { Module, Global } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config'; // Import ConfigModule
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { HttpModule } from '@nestjs/axios'; // Added HttpModule
 import { WhatsAppService } from './whatsapp.service';
-import { WhatsAppController } from './whatsapp.controller';
-import { BaileysManagerService } from './baileys-manager.service';
+import { WhatsAppController } from './whatsapp.controller'; // For sending messages
+import { WhatsAppWebhookController } from './whatsapp-webhook.controller'; // For receiving messages
 import { TenantSurrealModule } from '../tenant-surreal/tenant-surreal.module';
-import { ContactsModule } from '../contacts/contacts.module'; // To use ContactsService
+import { ContactsModule } from '../contacts/contacts.module';
+// AgUiModule is Global, so AgUiIntegrationService is available.
 
-// Making BaileysManagerService global so it's instantiated once and can be injected anywhere if needed,
-// though primarily used by WhatsAppService.
-@Global()
 @Module({
   imports: [
-    ConfigModule, // Make ConfigService available
-    TenantSurrealModule, // Provides TENANT_SURREAL_CONNECTION and TenantContextService
-    ContactsModule,      // Provides ContactsService
+    ConfigModule,
+    HttpModule, // Added HttpModule for making external API calls
+    TenantSurrealModule,
+    ContactsModule,
+    // AgUiModule is not needed here as it's global
   ],
-  controllers: [WhatsAppController],
+  controllers: [
+    WhatsAppController,         // Handles outgoing operations like sending messages
+    WhatsAppWebhookController,  // Handles incoming webhooks from Baileys microservice
+  ],
   providers: [
-    BaileysManagerService, // Singleton Baileys client manager
-    WhatsAppService,       // Request-scoped service using BaileysManager
+    WhatsAppService, // Refactored service, no longer depends on BaileysManagerService directly
   ],
-  exports: [WhatsAppService, BaileysManagerService], // Export if other modules need them
+  exports: [WhatsAppService], // Export WhatsAppService if other modules need to send messages
 })
 export class WhatsAppModule {}
