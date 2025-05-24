@@ -51,3 +51,20 @@
     - Included utility targets for cleaning Docker environment and shell access to containers.
     - Added a default 'help' target to list available commands.
     - Next step: Update README.md with Makefile usage instructions.
+
+[2025-05-28 10:00:00 -03:00] Fixed Docker build error for `baileys-microservice`.
+    - Cause: `npm ci` command failed due to missing or outdated `package-lock.json`.
+    - Solution: Instructed user to run `npm install` in the `baileys-microservice` directory to generate/update `package-lock.json` and commit it.
+    - Verified `baileys-microservice/Dockerfile` correctly uses `COPY package*.json ./` and `npm ci`. No changes to Dockerfile needed.
+    - Updated `README.md` with a note on the importance of `package-lock.json` for `npm ci` based Docker builds.
+
+[2025-05-28 11:00:00 -03:00] Switched `baileys-microservice` to use `pnpm` and automated its setup.
+    - Updated `baileys-microservice/Dockerfile` to install and use `pnpm` for dependency management (using `pnpm install --frozen-lockfile` with fallback).
+    - Added a new target `setup-baileys-pnpm` to the main `Makefile`. This target automates cleaning old npm artifacts, running `pnpm install` in `./baileys-microservice`, and staging `package.json` and `pnpm-lock.yaml` for commit.
+    - Updated `README.md` to include the new `make setup-baileys-pnpm` command and notes on `pnpm` usage for `baileys-microservice`.
+
+[2025-05-28 12:00:00 -03:00] Upgraded Node.js version and finalized Baileys pnpm setup to resolve build issues.
+    - Updated Dockerfiles for NestJS backend, AG-UI Proxy, and Baileys microservice to use `node:22-alpine` as the base image.
+    - Re-confirmed that `baileys-microservice/Dockerfile` uses `pnpm` for dependency management.
+    - Instructed user on ensuring their local `baileys-microservice` directory is correctly set up with `pnpm-lock.yaml` (via `make setup-baileys-pnpm`) and committed, and that they are using the latest Dockerfiles for the build.
+    - Next step: User to test the build with these comprehensive changes.

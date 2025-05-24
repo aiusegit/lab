@@ -1,6 +1,6 @@
 # Makefile for Local Development Automation
 
-.PHONY: help up down down-v restart logs logs-nestjs logs-baileys logs-surrealdb ps config build build-nestjs build-baileys clean prune-docker shell-nestjs shell-baileys shell-surrealdb default
+.PHONY: help up down down-v restart logs logs-nestjs logs-baileys logs-surrealdb ps config build build-nestjs build-baileys clean prune-docker shell-nestjs shell-baileys shell-surrealdb setup-baileys-pnpm default
 
 # Variables (service names from docker-compose.yml)
 NESTJS_SERVICE_NAME := nestjs_backend
@@ -89,6 +89,24 @@ shell-baileys: ## Get a shell into the running Baileys microservice container
 shell-surrealdb: ## Connect to SurrealDB SQL console in the container (saas_platform.tenants_db)
 	@echo "Connecting to SurrealDB instance: ws://localhost:8000, User: root, Pass: root, NS: saas_platform, DB: tenants_db"
 	docker-compose exec $(SURREALDB_SERVICE_NAME) /surreal sql -e ws://localhost:8000 -u root -p root --db tenants_db --ns saas_platform --pretty
+
+# Setup specific services
+setup-baileys-pnpm: ## Setup pnpm for baileys-microservice (generates lockfile & stages it)
+	@echo "Setting up pnpm for ./baileys-microservice..."
+	@(cd ./baileys-microservice && \
+		echo "Cleaning old npm artifacts (if any)..." && \
+		rm -f package-lock.json && \
+		rm -rf node_modules && \
+		echo "Running pnpm install to generate/update pnpm-lock.yaml..." && \
+		pnpm install && \
+		echo "Staging pnpm-lock.yaml and package.json..." && \
+		git add package.json pnpm-lock.yaml && \
+		echo "" && \
+		echo "\033[32mSUCCESS: pnpm setup complete for baileys-microservice.\033[0m" && \
+		echo "pnpm-lock.yaml and package.json are now staged in git." && \
+		echo "Please review the staged changes with 'git status' or 'git diff --staged' (from the project root, check files in ./baileys-microservice)," && \
+		echo "and then commit them (e.g., git commit -m \"feat(baileys): setup pnpm and add lockfile\")." \
+	)
 
 # Default target
 default: help

@@ -13,6 +13,10 @@ This project uses Docker Compose and a Makefile to simplify local development.
 - Create a `.env` file in the project root (see `.env.example`).
 - Create a `.env` file in `./baileys-microservice/` (see `./baileys-microservice/.env.example`).
   Ensure API keys match between these files as per comments in `.env.example`.
+- **`package-lock.json` / `pnpm-lock.yaml`:**
+  - For services built with Docker using `npm ci` (like the NestJS backend, if it were using `npm ci`), ensure `package-lock.json` is committed.
+  - The `baileys-microservice` now uses `pnpm`. Use the `make setup-baileys-pnpm` command to generate/update `pnpm-lock.yaml` and stage it. This file **must** be committed. If you encounter `pnpm install --frozen-lockfile` errors during Docker builds for this service, run `make setup-baileys-pnpm` and commit the changes.
+- If developing the `baileys-microservice` directly, use `pnpm` commands (e.g., `pnpm install`, `pnpm add <package>`) within the `./baileys-microservice` directory.
 
 ### Makefile Commands
 
@@ -23,6 +27,7 @@ A `Makefile` is provided at the project root to manage common Docker Compose ope
 - `make down` or `make stop`: Stop and remove all running services.
 - `make down-v`: Stop and remove services AND their Docker volumes (e.g., SurrealDB data, Baileys session files - USE WITH CAUTION).
 - `make restart`: Restart all services.
+- `make setup-baileys-pnpm`: Specifically prepares the `./baileys-microservice` for `pnpm` development. It cleans old npm artifacts, runs `pnpm install` to generate/update `pnpm-lock.yaml`, and stages `package.json` and `pnpm-lock.yaml` for you to review and commit. Essential after pulling changes to this service or if build issues occur.
 - `make logs`: Follow logs for all services.
 - `make logs-nestjs`: Follow logs for the NestJS backend.
 - `make logs-baileys`: Follow logs for the Baileys microservice.
@@ -39,7 +44,8 @@ A `Makefile` is provided at the project root to manage common Docker Compose ope
 - `make shell-surrealdb`: Connect to the SurrealDB SQL console inside its container.
 
 **Typical Workflow:**
-1. Run `make up` to start the environment.
+1. If you've pulled changes related to `baileys-microservice` or suspect lockfile issues, run `make setup-baileys-pnpm` and commit any changes to `pnpm-lock.yaml`.
+2. Run `make up` to start the environment.
 2. Check logs with `make logs` or `make logs-baileys` (for QR code).
 3. Develop and test.
 4. Run `make down` when finished.

@@ -1,74 +1,50 @@
-# Dockerfile for Standalone Baileys WhatsApp Service
+# baileys-microservice/Dockerfile
 
-# ---- Builder Stage ----
-FROM node:18-alpine AS builder
+# Builder stage
+FROM node:22-alpine AS builder
+RUN npm install -g pnpm # Install pnpm globally
 WORKDIR /app
 
-# Copy package.json and package-lock.json (or yarn.lock)
-COPY package*.json ./
+COPY package.json ./
+# Copy pnpm-lock.yaml if it exists. The install command below handles its absence initially.
+COPY pnpm-lock.yaml* ./ 
 
-# Install dependencies using npm ci for consistency with lock file
-RUN npm ci
+# Install dependencies using pnpm.
+# --frozen-lockfile is similar to npm ci.
+# Falls back to 'pnpm install' if lockfile is missing/problematic (useful for initial setup by user).
+RUN if [ -f pnpm-lock.yaml ]; then echo "pnpm-lock.yaml found, running pnpm install --frozen-lockfile." && pnpm install --frozen-lockfile; else echo "pnpm-lock.yaml not found, running pnpm install." && pnpm install; fi
 
-# Copy the rest of the application source code
 COPY . .
+# Assuming 'build' script in package.json is like "tsc -p ." or similar
+RUN pnpm run build 
 
-# Run the build process (e.g., TypeScript to JavaScript)
-RUN npm run build
+# Runner stage
+FROM node:22-alpine
+RUN npm install -g pnpm # Install pnpm globally in runner too
 
-# ---- Runner Stage ----
-FROM node:18-alpine
+# Install OS dependencies for Baileys
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont gcompat libwebp
+
 WORKDIR /app
 
-# Install OS dependencies required by Baileys
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    gcompat \
-    libwebp
-
-# Copy built application, node_modules, and package.json from builder stage
+# Copy essential files from builder stage
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
+# Copy pnpm-lock.yaml to ensure prod install is consistent
+COPY --from=builder /app/pnpm-lock.yaml* ./ 
 
-# Define the session file path that will be used by the application
-# This will be used by the application if process.env.SESSION_FILE_PATH is read.
+# Install only production dependencies using pnpm
+# This creates a clean node_modules folder in the runner
+RUN if [ -f pnpm-lock.yaml ]; then echo "pnpm-lock.yaml found in runner, running pnpm install --prod --frozen-lockfile." && pnpm install --prod --frozen-lockfile; else echo "pnpm-lock.yaml not found in runner, running pnpm install --prod." && pnpm install --prod; fi
+
+# Create a non-root user and group
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Create session directory and ensure /app is writable by appuser
 ENV SESSION_FILE_PATH=/app/whatsapp_sessions/baileys_auth_state
+RUN mkdir -p $SESSION_FILE_PATH && chown -R appuser:appgroup /app
 
-# Create the session directory and set permissions for the 'node' user.
-# The 'node' user is provided by the official Node.js Docker images.
-# Ensure this path matches the one used in baileysManager.ts (via process.env.SESSION_FILE_PATH)
-RUN mkdir -p ${SESSION_FILE_PATH} && \
-    chown -R node:node ${SESSION_FILE_PATH} && \
-    chown -R node:node /app
+USER appuser
 
-# Switch to the non-root 'node' user
-USER node
-
-# Expose the port the application will run on
-# Defaulting to 3002 if PORT environment variable is not set at runtime
 EXPOSE ${PORT:-3002}
-
-# Command to run the application
 CMD ["node", "dist/server.js"]
-
-# Comments:
-# - Uses multi-stage build for a smaller final image.
-# - Builder stage installs all dependencies using 'npm ci' and builds the TypeScript source.
-# - Runner stage installs OS dependencies for Baileys.
-# - Copies necessary artifacts (dist, node_modules, package.json) from the builder.
-# - Creates and sets permissions for the session directory for the 'node' user.
-# - Runs the application as the 'node' user for better security.
-# - Assumes SESSION_FILE_PATH in .env will be './baileys_session_store' or similar relative path.
-#   The Dockerfile sets up /app/baileys_session_store for this.
-#   The application code (baileysManager.ts) should use process.env.SESSION_FILE_PATH
-#   which will resolve to this path inside the container if the env var is set to the relative path
-#   or an absolute path like /app/baileys_session_store.
-#   If SESSION_FILE_PATH is not set in .env for Docker, the default in baileysManager.ts will be used.
-#   It's good practice to ensure the Docker ENV SESSION_DIR_PATH aligns with app's expectation.
-#   For this setup, if .env's SESSION_FILE_PATH is './baileys_session_store', it works as /app/baileys_session_store.
