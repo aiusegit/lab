@@ -1,0 +1,11 @@
+[2025-05-23 14:36:00 -03:00] Enhanced system design to prioritize JavaScript/TypeScript stack with NestJS, SvelteKit, and CopilotKit. Integrated SurrealDB and AG-UI Protocol for multitenant, real-time interactions. Centralized all configurations in .env file, loaded via dotenv. Updated Makefile with JS linting, SurrealDB backups, and AG-UI testing. Added custom Prometheus metrics for NestJS and AG-UI. Updated dev.log, requisitos.md, and system_prompt.md. Generated consolidated YAML superprompt.
+
+[2025-05-24 10:00:00 -03:00] Initiated development of a multi-tenant SaaS CRM application as per user request.
+    - Defined Phase 1 plan: Core CRM data modeling (SurrealDB), NestJS module design, and initial implementation of tenant/user management.
+    - Completed Phase 1:
+        - Defined SurrealDB schemas for Tenants (master DB), Users, Contacts, Deals, Tasks, Kanban Columns, Sales Funnel Stages, and WhatsApp Messages (tenant DBs).
+        - Designed NestJS modules (Tenants, Auth, Users, Contacts, Deals, Tasks, Kanban, SalesFunnel, WhatsApp) adhering to hexagonal principles and multitenancy.
+        - Implemented tenant provisioning in `TenantsService` (dynamic namespace/DB creation, CRM table schema definition, initial admin user setup).
+        - Implemented tenant-scoped user registration and login (`AuthService`) with JWT authentication.
+        - Updated `requisitos.md` to reflect new CRM module, features, and technologies.
+    - Next steps: Proceed with Phase 2 (Kanban backend logic and further CRM feature implementation).
