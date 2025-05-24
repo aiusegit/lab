@@ -33,3 +33,21 @@
     - Implemented a webhook endpoint in NestJS (`/api/whatsapp/webhook/incoming`) to receive messages from the Baileys microservice, secured with an API key.
     - Updated/created `.env.example` files for both NestJS backend and Baileys microservice with necessary environment variables for their interaction (service URLs, API keys).
     - This refactoring enables more robust and scalable WhatsApp integration.
+
+[2025-05-27 15:00:00 -03:00] Planned CRM MVP Deployment using Coolify.
+    - Outlined steps for VPS preparation and Coolify installation.
+    - Detailed configuration of Coolify resources (Git source, server destination).
+    - Provided guidance for deploying SurrealDB via Coolify (as a built-in service or custom Docker image), including master NS/DB setup.
+    - Detailed deployment of backend services (NestJS API, Baileys Microservice, AG-UI Proxy) via Coolify, including Docker builds, environment variable configuration for inter-service communication, and persistent volumes for Baileys.
+    - Detailed deployment of the Astro/SvelteKit frontend via Coolify, including build configuration and environment variables for backend service URLs.
+    - Covered configuration of domains, HTTPS (Let's Encrypt), and reverse proxy (Traefik) within Coolify.
+    - Outlined a comprehensive testing strategy for the deployed environment.
+    - Addressed initial considerations for future deployment of advanced security components (SPIRE, OPA, Kuma) in a Coolify context.
+    - Next step: User to execute this deployment plan.
+
+[2025-05-28 09:00:00 -03:00] Created Makefile for local development automation.
+    - Defined targets for managing Docker Compose environment (up, down, restart, logs, ps, config).
+    - Added targets for Docker image build management (build all, build specific services, no-cache).
+    - Included utility targets for cleaning Docker environment and shell access to containers.
+    - Added a default 'help' target to list available commands.
+    - Next step: Update README.md with Makefile usage instructions.
