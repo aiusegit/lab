@@ -1,0 +1,119 @@
+---
+import { isLoggedIn, userEmail, logout, tenantId } from '../lib/auth.store'; // Adjust path as needed
+import { get } from 'svelte/store'; // To get current value of store
+
+export interface Props {
+	title: string;
+}
+
+const { title } = Astro.props;
+
+// This script runs on the server during build/SSR and also can run client-side for client:only components
+// For reactive UI based on store changes, Svelte components are better.
+// Astro components are for static or server-rendered content primarily.
+let currentIsLoggedIn = false;
+let currentUserEmail = null;
+let currentTenantId = null;
+
+// This is a bit of a hack for Astro layouts to be semi-dynamic.
+// Ideally, use client-side routing or Svelte components for dynamic nav.
+// For this MVP, we'll show/hide based on initial store state if possible or rely on Svelte components.
+if (typeof window !== 'undefined') { // Client-side check
+    currentIsLoggedIn = get(isLoggedIn);
+    currentUserEmail = get(userEmail);
+    currentTenantId = get(tenantId);
+
+    isLoggedIn.subscribe(value => { // Keep it updated if store changes client-side
+        currentIsLoggedIn = value;
+        // This won't re-render the Astro layout itself, but scripts here can react.
+        // For visual changes, a Svelte component handling the nav would be better.
+    });
+    userEmail.subscribe(value => currentUserEmail = value);
+    tenantId.subscribe(value => currentTenantId = value);
+}
+
+const handleLogout = () => {
+    logout(); // This function from auth.store handles redirect
+}
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="description" content="Astro CRM" />
+		<meta name="viewport" content="width=device-width" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="generator" content={Astro.generator} />
+		<title>{title}</title>
+    <!-- Assuming TailwindCSS is configured in astro.config.mjs and a global.css file imports Tailwind directives -->
+    <link rel="stylesheet" href="/src/styles/global.css"> <!-- Adjust path if your global.css is elsewhere -->
+	</head>
+	<body class="bg-gray-50 text-gray-800">
+    <nav class="bg-white shadow-md">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-16">
+          <div class="flex items-center">
+            <a href="/" class="text-xl font-semibold text-indigo-600">AstroCRM</a>
+          </div>
+          <div class="flex items-center space-x-4">
+            { currentIsLoggedIn && (
+              <>
+                <a href="/dashboard" class="text-gray-600 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium">Dashboard</a>
+                <a href="/contacts" class="text-gray-600 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium">Contacts</a>
+                <a href="/kanban" class="text-gray-600 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium">Kanban</a>
+              </>
+            )}
+          </div>
+          <div class="flex items-center">
+            { currentIsLoggedIn ? (
+              <div class="flex items-center">
+                <span class="text-sm text-gray-600 mr-3">
+                  {currentUserEmail} ({currentTenantId})
+                </span>
+                <button 
+                  id="logout-button"
+                  class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                  >Logout</button>
+              </div>
+            ) : (
+              <a href="/login" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md text-sm font-medium">Login</a>
+            )}
+          </div>
+        </div>
+      </div>
+    </nav>
+		<main class="container mx-auto p-6">
+			<slot />
+		</main>
+    <script is:inline>
+      // Client-side script to handle logout button if it's rendered
+      // This is necessary because Astro components don't have Svelte-like event handling for server-side rendered elements.
+      // A Svelte component for the Nav would be cleaner for interactivity.
+      document.addEventListener('DOMContentLoaded', () => {
+        const logoutButton = document.getElementById('logout-button');
+        if (logoutButton) {
+          logoutButton.addEventListener('click', () => {
+            // Attempt to call the logout function from the store.
+            // This is tricky because the store is not directly accessible here in a clean way.
+            // The logout function in the store handles localStorage and redirection.
+            // For MVP, we can directly clear localStorage and redirect.
+            localStorage.removeItem('jwt_token');
+            localStorage.removeItem('tenant_id');
+            localStorage.removeItem('user_email');
+            window.location.href = '/login';
+          });
+        }
+      });
+    </script>
+	</body>
+</html>
+
+<style is:global>
+	/* Tailwind base, components, utilities are typically handled by the global.css import */
+  /* Ensure you have a global.css file like this:
+  @tailwind base;
+  @tailwind components;
+  @tailwind utilities;
+  */
+</style>

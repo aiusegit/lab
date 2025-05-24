@@ -34,6 +34,7 @@
     - **Tecnologia:**
         - Construído como um módulo principal dentro da arquitetura NestJS existente.
         - Utiliza SurrealDB para persistência de dados, com isolamento multitenant (namespaces e databases dedicados por tenant) para todas as entidades do CRM.
+    - **Status MVP:** Funcionalidades MVP implementadas, incluindo CRUD de Contatos e Negócios, visualização Kanban básica com movimentação de cards (via dropdown) e atualização em tempo real (via AG-UI/CopilotKit), e envio/recebimento inicial de mensagens WhatsApp (via Baileys). Interface de usuário básica (Astro/SvelteKit) para estas funcionalidades também está disponível.
 
 ## Requisitos Técnicos
 - **Multitenancy**:
@@ -48,7 +49,7 @@
 - **CRM Específico:**
     - Modelagem de dados detalhada no SurrealDB para as entidades do CRM: `contacts`, `companies` (ou `accounts`), `deals` (ou `opportunities`), `tasks`, `kanban_columns`, `sales_funnel_stages` (ou `deal_stages`), `whatsapp_messages`, etc., dentro de cada banco de dados do tenant.
     - APIs RESTful robustas no NestJS para todas as funcionalidades do CRM, incluindo operações CRUD, lógica de Kanban (movimentação de cards, atualização de status) e gestão do funil de vendas.
-    - Lógica de negócios para a movimentação de cards no Kanban, transições de estágio no funil e regras de automação associadas.
+    - Lógica de negócios para a movimentação de cards no Kanban, transições de estágio no funil e regras de automação associadas (MVP: movimentação via UI e atualização em tempo real implementadas).
     - Integração com Baileys para troca de mensagens e Chatwoot (opcional) para interface de atendimento.
 
 ## Links de Documentação

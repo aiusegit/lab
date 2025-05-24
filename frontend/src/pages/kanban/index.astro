@@ -1,0 +1,8 @@
+---
+import KanbanPage from '../../../components/KanbanPage.svelte'; // Adjust path
+import Layout from '../../../layouts/Layout.astro'; // Adjust path
+---
+
+<Layout title="Kanban Board - CRM">
+  <KanbanPage client:only="svelte" />
+</Layout>

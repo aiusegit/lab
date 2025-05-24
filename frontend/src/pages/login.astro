@@ -1,0 +1,8 @@
+---
+import LoginPage from '../../components/LoginPage.svelte';
+import Layout from '../../layouts/Layout.astro'; // Assuming a basic layout
+---
+
+<Layout title="Login - CRM">
+  <LoginPage client:only="svelte" />
+</Layout>

@@ -9,3 +9,18 @@
         - Implemented tenant-scoped user registration and login (`AuthService`) with JWT authentication.
         - Updated `requisitos.md` to reflect new CRM module, features, and technologies.
     - Next steps: Proceed with Phase 2 (Kanban backend logic and further CRM feature implementation).
+
+[2025-05-25 18:00:00 -03:00] Completed Phase 2: CRM MVP Implementation.
+    - **Backend (NestJS):**
+        - Implemented full CRUD operations for Contacts and Deals modules.
+        - Developed Kanban board backend logic: fetching deals grouped by columns, updating deal stages.
+        - Integrated initial Baileys WhatsApp functionality: sending messages to contacts, basic handling of incoming messages (routed to a default tenant for MVP). Baileys client managed by `BaileysManagerService` with session persistence.
+    - **Frontend (Astro/SvelteKit):**
+        - Developed basic UI for login (tenant-aware), contact list/create/edit, and Kanban board view (deal stage changes via dropdown).
+        - Implemented UI to trigger sending WhatsApp messages to contacts.
+        - Authenticated API calls handled via a Svelte store, including `x-tenant-id` header.
+    - **Real-time & AG-UI/CopilotKit:**
+        - Backend `KanbanService` now emits `deal_stage_updated` AG-UI events when a deal's column changes.
+        - Frontend `KanbanPage.svelte` subscribes to these events via CopilotKit, enabling real-time data refresh for the relevant tenant.
+    - **Documentation:** Updated `requisitos.md` to reflect MVP status.
+    - The CRM MVP is now functional at a basic level. Next steps could involve refining features, adding more robust error handling, comprehensive testing, or developing further integrations.

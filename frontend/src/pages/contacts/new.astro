@@ -1,0 +1,8 @@
+---
+import ContactFormPage from '../../../components/ContactFormPage.svelte'; // Adjust path based on actual structure
+import Layout from '../../../layouts/Layout.astro'; // Adjust path
+---
+
+<Layout title="Create Contact - CRM">
+  <ContactFormPage client:only="svelte" />
+</Layout>

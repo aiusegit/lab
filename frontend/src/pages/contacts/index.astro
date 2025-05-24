@@ -1,0 +1,8 @@
+---
+import ContactListPage from '../../../components/ContactListPage.svelte'; // Path needs to be relative to this file
+import Layout from '../../../layouts/Layout.astro'; // Path needs to be relative to this file
+---
+
+<Layout title="Contacts - CRM">
+  <ContactListPage client:only="svelte" />
+</Layout>

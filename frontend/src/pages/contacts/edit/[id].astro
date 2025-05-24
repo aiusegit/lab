@@ -1,0 +1,15 @@
+---
+// src/pages/contacts/edit/[id].astro
+import ContactFormPage from '../../../../components/ContactFormPage.svelte'; // Adjust path based on actual structure
+import Layout from '../../../../layouts/Layout.astro'; // Adjust path
+
+export interface Props {
+  id: string;
+}
+
+const { id } = Astro.params; // Astro.params contains the dynamic route parameters
+---
+
+<Layout title="Edit Contact - CRM">
+  <ContactFormPage contactId={id} client:only="svelte" />
+</Layout>
